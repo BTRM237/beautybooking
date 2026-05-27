@@ -1,0 +1,321 @@
+// Beauty Booking Vietnam - Prisma Schema
+// Database: SQLite for development, PostgreSQL for production
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+// ============================================
+// ENUMS (using string fields for SQLite compat)
+// ============================================
+
+// UserRole: ADMIN, STAFF
+// UserStatus: ACTIVE, DISABLED
+// ServiceStatus: ACTIVE, INACTIVE
+// BookingStatus: PENDING, CONFIRMED, COMPLETED, CANCELLED, NO_SHOW
+// BookingType: STUDIO, HOME
+// BlogStatus: DRAFT, PUBLISHED
+// LeadStatus: NEW, CONTACTED, WON, LOST
+// MessageRole: USER, ASSISTANT, SYSTEM
+// PortfolioStatus: VISIBLE, HIDDEN
+
+// ============================================
+// MODELS
+// ============================================
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  password      String
+  name          String
+  role          String    @default("STAFF") // ADMIN, STAFF
+  status        String    @default("ACTIVE") // ACTIVE, DISABLED
+  avatar        String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  staffProfile  StaffProfile?
+  bookings      Booking[]     @relation("StaffBookings")
+
+  @@index([email])
+  @@index([role])
+}
+
+model StaffProfile {
+  id              String   @id @default(cuid())
+  userId          String   @unique
+  displayName     String
+  avatar          String?
+  bio             String?
+  experienceYears Int      @default(0)
+  specialties     String?  // JSON array string
+  workingStatus   String   @default("ACTIVE") // ACTIVE, ON_LEAVE, INACTIVE
+  serviceRadiusKm Int      @default(10)
+  workingHours    String?  // JSON object string
+  sortOrder       Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  services        ServiceStaff[]
+
+  @@index([workingStatus])
+  @@index([workingStatus, sortOrder])
+}
+
+model Service {
+  id               String   @id @default(cuid())
+  name             String
+  slug             String   @unique
+  category         String   // Cô dâu, Dự tiệc, Kỷ yếu, etc.
+  shortDescription String?
+  description      String?  // Rich text
+  basePrice        Int      // VND
+  durationMin      Int      // Minutes
+  thumbnail        String?
+  gallery          String?  // JSON array of image URLs
+  benefits         String?  // JSON array
+  occasions        String?  // JSON array
+  styleSuggestions String?  // JSON array
+  faq              String?  // JSON array of {question, answer}
+  seoTitle         String?
+  seoDescription   String?
+  status           String   @default("ACTIVE") // ACTIVE, INACTIVE
+  featured         Boolean  @default(false)
+  sortOrder        Int      @default(0)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  staff            ServiceStaff[]
+  bookings         Booking[]
+
+  @@index([slug])
+  @@index([category])
+  @@index([status])
+  @@index([status, sortOrder])
+  @@index([featured])
+}
+
+model ServiceStaff {
+  id        String @id @default(cuid())
+  serviceId String
+  staffId   String
+
+  service   Service      @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  staff     StaffProfile @relation(fields: [staffId], references: [id], onDelete: Cascade)
+
+  @@unique([serviceId, staffId])
+}
+
+model Customer {
+  id        String   @id @default(cuid())
+  name      String
+  phone     String   @unique
+  email     String?
+  address   String?
+  note      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  bookings  Booking[]
+
+  @@index([phone])
+}
+
+model Booking {
+  id             String   @id @default(cuid())
+  bookingCode    String   @unique
+  customerId     String
+  serviceId      String
+  staffId        String
+  startAt        DateTime
+  endAt          DateTime
+  bookingType    String   @default("STUDIO") // STUDIO, HOME
+  address        String?
+  status         String   @default("PENDING") // PENDING, CONFIRMED, COMPLETED, CANCELLED, NO_SHOW
+  totalPrice     Int
+  customerNote   String?
+  adminNote      String?
+  consentGiven   Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  customer       Customer      @relation(fields: [customerId], references: [id])
+  service        Service       @relation(fields: [serviceId], references: [id])
+  staff          User          @relation("StaffBookings", fields: [staffId], references: [id])
+  events         BookingEvent[]
+
+  @@unique([staffId, startAt])
+  @@index([startAt])
+  @@index([status])
+  @@index([customerId])
+  @@index([serviceId])
+  @@index([staffId])
+  @@index([staffId, status, startAt])
+  @@index([staffId, startAt, endAt])
+  @@index([bookingCode])
+}
+
+model BookingEvent {
+  id        String   @id @default(cuid())
+  bookingId String
+  action    String   // CREATED, CONFIRMED, CANCELLED, COMPLETED, NO_SHOW, RESCHEDULED, NOTE_ADDED
+  details   String?
+  actor     String?  // admin email or "system" or "customer"
+  createdAt DateTime @default(now())
+
+  booking   Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  @@index([bookingId])
+}
+
+model BlockedSlot {
+  id        String   @id @default(cuid())
+  staffId   String?
+  startAt   DateTime
+  endAt     DateTime
+  reason    String?
+  isAllDay  Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([staffId])
+  @@index([startAt])
+  @@index([staffId, startAt, endAt])
+}
+
+model AiConversation {
+  id           String      @id @default(cuid())
+  sessionId    String      @unique
+  customerName String?
+  customerPhone String?
+  status       String      @default("ACTIVE") // ACTIVE, CLOSED
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  messages     AiMessage[]
+  lead         AiLead?
+}
+
+model AiMessage {
+  id             String         @id @default(cuid())
+  conversationId String
+  role           String         // USER, ASSISTANT, SYSTEM
+  content        String
+  intent         String?
+  createdAt      DateTime       @default(now())
+
+  conversation   AiConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId])
+}
+
+model AiLead {
+  id              String         @id @default(cuid())
+  conversationId  String         @unique
+  customerName    String?
+  phone           String?
+  serviceInterest String?
+  preferredDate   String?
+  preferredTime   String?
+  budget          String?
+  summary         String?
+  status          String         @default("NEW") // NEW, CONTACTED, WON, LOST
+  adminNote       String?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  conversation    AiConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([status])
+}
+
+model PortfolioItem {
+  id          String   @id @default(cuid())
+  title       String
+  slug        String   @unique
+  style       String   // Tone Hàn Quốc, Tone Tây, Cô dâu, etc.
+  beforeImage String?
+  afterImage  String?
+  gallery     String?  // JSON array
+  description String?
+  status      String   @default("VISIBLE") // VISIBLE, HIDDEN
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([style])
+  @@index([status])
+  @@index([status, sortOrder])
+}
+
+model BlogPost {
+  id             String    @id @default(cuid())
+  title          String
+  slug           String    @unique
+  excerpt        String?
+  content        String    // Rich text / markdown
+  thumbnail      String?
+  category       String?
+  seoTitle       String?
+  seoDescription String?
+  status         String    @default("DRAFT") // DRAFT, PUBLISHED
+  publishedAt    DateTime?
+  authorId       String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([slug])
+  @@index([status])
+  @@index([status, publishedAt])
+  @@index([category])
+}
+
+model Review {
+  id         String   @id @default(cuid())
+  name       String
+  rating     Int      @default(5) // 1-5
+  comment    String
+  service    String?
+  avatar     String?
+  isApproved Boolean  @default(true)
+  createdAt  DateTime @default(now())
+
+  @@index([isApproved])
+  @@index([isApproved, createdAt])
+}
+
+model Setting {
+  id    String @id @default(cuid())
+  key   String @unique
+  value String
+
+  @@index([key])
+}
+
+model AnalyticsEvent {
+  id        String   @id @default(cuid())
+  eventType String   // contact_click, booking_start, booking_complete, ai_chat_open, page_view
+  eventData String?  // JSON
+  sessionId String?
+  page      String?
+  createdAt DateTime @default(now())
+
+  @@index([eventType])
+  @@index([createdAt])
+}
+
+model ContactMessage {
+  id        String   @id @default(cuid())
+  name      String
+  phone     String
+  service   String?
+  message   String?
+  status    String   @default("NEW") // NEW, READ, REPLIED
+  createdAt DateTime @default(now())
+
+  @@index([status])
+}
